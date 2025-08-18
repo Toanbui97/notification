@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notification Service Client</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .header {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .connection-status {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .form-group textarea {
+            height: 80px;
+            resize: vertical;
+        }
+
+        .btn {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        .btn:hover { background-color: #0056b3; }
+        .btn:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .btn-danger {
+            background-color: #dc3545;
+        }
+        .btn-danger:hover {
+            background-color: #c82333;
+        }
+
+        .notifications-container {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            background-color: #f8f9fa;
+        }
+
+        .notification {
+            background: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .notification.info { border-left-color: #17a2b8; }
+        .notification.success { border-left-color: #28a745; }
+        .notification.warning { border-left-color: #ffc107; }
+        .notification.error { border-left-color: #dc3545; }
+
+        .notification-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .notification-title {
+            font-weight: bold;
+            color: #333;
+            margin: 0;
+        }
+        .notification-time {
+            color: #666;
+            font-size: 12px;
+        }
+        .notification-message {
+            color: #666;
+            margin: 0;
+        }
+
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .two-column {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="header">
+    <h1>🔔 Notification Service Test Client</h1>
+    <p>Test your Spring Boot + Redis + WebSocket notification system</p>
+</div>
+
+<div class="container">
+    <h2>Connection Settings</h2>
+    <div id="connectionStatus" class="connection-status disconnected">
+        ❌ Disconnected
+    </div>
+
+    <div class="form-group">
+        <label for="serverUrl">Server URL:</label>
+        <input type="text" id="serverUrl" value="http://localhost:8080/ws" />
+    </div>
+
+    <div class="form-group">
+        <label for="userId">User ID:</label>
+        <input type="text" id="userId" value="1" placeholder="Enter your user ID" />
+    </div>
+
+    <button id="connectBtn" class="btn">Connect</button>
+    <button id="disconnectBtn" class="btn btn-danger" disabled>Disconnect</button>
+</div>
+
+<div class="two-column">
+    <div class="container">
+        <h2>Send Test Notification</h2>
+        <div class="form-group">
+            <label for="targetUserId">Target User ID:</label>
+            <input type="text" id="userId" value="1" placeholder="User to send notification to" />
+        </div>
+
+        <div class="form-group">
+            <label for="notificationTitle">Message:</label>
+            <input type="text" id="message" value="Test Notification" placeholder="Notification title" />
+        </div>
+
+        <div class="form-group">
+            <label for="notificationTitle">Message:</label>
+            <input type="text" id="protocol" value="ws" placeholder="Protocol" />
+        </div>
+
+        <button id="sendNotificationBtn" class="btn">Send Notification</button>
+    </div>
+
+    <div class="container">
+        <h2>Received Notifications</h2>
+        <button id="clearNotificationsBtn" class="btn" style="margin-bottom: 15px;">Clear All</button>
+        <div id="notificationsContainer" class="notifications-container">
+            <p style="text-align: center; color: #666;">No notifications received yet...</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    let stompClient = null;
+    let connected = false;
+
+    // DOM elements
+    const connectionStatus = document.getElementById('connectionStatus');
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const serverUrl = document.getElementById('serverUrl');
+    const userId = document.getElementById('userId');
+    const sendNotificationBtn = document.getElementById('sendNotificationBtn');
+    const notificationsContainer = document.getElementById('notificationsContainer');
+    const clearNotificationsBtn = document.getElementById('clearNotificationsBtn');
+
+    // Connect to WebSocket
+    function connect() {
+        const url = serverUrl.value;
+        const user = userId.value.trim();
+
+        if (!user) {
+            alert('Please enter a User ID');
+            return;
+        }
+
+        const socket = new SockJS(url);
+        stompClient = Stomp.over(socket);
+
+        // Add userId header for authentication
+        const headers = {
+            'userId': user
+        };
+
+        stompClient.connect(headers, function(frame) {
+            connected = true;
+            updateConnectionStatus();
+            console.log('Connected: ' + frame);
+
+            // Subscribe to user-specific notifications
+            stompClient.subscribe('/user/queue/notifications', function(notification) {
+                const notificationData = JSON.parse(notification.body);
+                displayNotification(notificationData);
+            });
+
+        }, function(error) {
+            console.error('Connection error: ', error);
+            connected = false;
+            updateConnectionStatus();
+            alert('Failed to connect to server. Please check the server URL and try again.');
+        });
+    }
+
+    // Disconnect from WebSocket
+    function disconnect() {
+        if (stompClient !== null) {
+            stompClient.disconnect();
+            connected = false;
+            updateConnectionStatus();
+            console.log('Disconnected');
+        }
+    }
+
+    // Update connection status UI
+    function updateConnectionStatus() {
+        if (connected) {
+            connectionStatus.textContent = '✅ Connected as ' + userId.value;
+            connectionStatus.className = 'connection-status connected';
+            connectBtn.disabled = true;
+            disconnectBtn.disabled = false;
+            sendNotificationBtn.disabled = false;
+        } else {
+            connectionStatus.textContent = '❌ Disconnected';
+            connectionStatus.className = 'connection-status disconnected';
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+            sendNotificationBtn.disabled = true;
+        }
+    }
+
+    // Send notification via REST API
+    async function sendNotification() {
+        const userId = document.getElementById('userId').value.trim();
+        const message = document.getElementById('message').value.trim();
+        const protocol = document.getElementById('protocol').value;
+
+        if (!userId || !protocol || !message) {
+            alert('Please fill in all required fields');
+            return;
+        }
+
+        try {
+            const baseUrl = serverUrl.value.replace('/ws', '');
+            const response = await fetch(`${baseUrl}/api/v1/notifications`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    userId: userId,
+                    message: message,
+                    protocol: protocol
+                })
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                alert('Notification sent successfully!');
+            } else {
+                alert('Failed to send notification: ' + (result.message || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Error sending notification:', error);
+            alert('Error sending notification. Please check the console for details.');
+        }
+    }
+
+    // Display received notification
+    function displayNotification(notification) {
+        const container = notificationsContainer;
+
+        // Remove "no notifications" message
+        if (container.children.length === 1 && container.children[0].tagName === 'P') {
+            container.innerHTML = '';
+        }
+
+        const notificationEl = document.createElement('div');
+        notificationEl.className = `notification ${notification.type}`;
+
+        const time = new Date(notification.timestamp).toLocaleString();
+
+        notificationEl.innerHTML = `
+                <div class="notification-header">
+                    <h4 class="notification-title">${escapeHtml(notification.title)}</h4>
+                    <span class="notification-time">${time}</span>
+                </div>
+                <p class="notification-message">${escapeHtml(notification.message)}</p>
+            `;
+
+        // Add to top of container
+        container.insertBefore(notificationEl, container.firstChild);
+
+        // Animate the notification
+        notificationEl.style.opacity = '0';
+        notificationEl.style.transform = 'translateY(-20px)';
+        setTimeout(() => {
+            notificationEl.style.transition = 'all 0.3s ease';
+            notificationEl.style.opacity = '1';
+            notificationEl.style.transform = 'translateY(0)';
+        }, 10);
+    }
+
+    // Clear all notifications
+    function clearNotifications() {
+        notificationsContainer.innerHTML = '<p style="text-align: center; color: #666;">No notifications received yet...</p>';
+    }
+
+    // Escape HTML to prevent XSS
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Event listeners
+    connectBtn.addEventListener('click', connect);
+    disconnectBtn.addEventListener('click', disconnect);
+    sendNotificationBtn.addEventListener('click', sendNotification);
+    clearNotificationsBtn.addEventListener('click', clearNotifications);
+
+    // Initialize UI state
+    updateConnectionStatus();
+
+    // Auto-focus user ID field
+    userId.focus();
+</script>
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notification Service Client</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .header {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .connection-status {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .form-group textarea {
+            height: 80px;
+            resize: vertical;
+        }
+
+        .btn {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        .btn:hover { background-color: #0056b3; }
+        .btn:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .btn-danger {
+            background-color: #dc3545;
+        }
+        .btn-danger:hover {
+            background-color: #c82333;
+        }
+
+        .notifications-container {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            background-color: #f8f9fa;
+        }
+
+        .notification {
+            background: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .notification.info { border-left-color: #17a2b8; }
+        .notification.success { border-left-color: #28a745; }
+        .notification.warning { border-left-color: #ffc107; }
+        .notification.error { border-left-color: #dc3545; }
+
+        .notification-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .notification-title {
+            font-weight: bold;
+            color: #333;
+            margin: 0;
+        }
+        .notification-time {
+            color: #666;
+            font-size: 12px;
+        }
+        .notification-message {
+            color: #666;
+            margin: 0;
+        }
+
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .two-column {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="header">
+    <h1>🔔 Notification Service Test Client</h1>
+    <p>Test your Spring Boot + Redis + WebSocket notification system</p>
+</div>
+
+<div class="container">
+    <h2>Connection Settings</h2>
+    <div id="connectionStatus" class="connection-status disconnected">
+        ❌ Disconnected
+    </div>
+
+    <div class="form-group">
+        <label for="serverUrl">Server URL:</label>
+        <input type="text" id="serverUrl" value="http://localhost:8080/ws" />
+    </div>
+
+    <div class="form-group">
+        <label for="userId">User ID:</label>
+        <input type="text" id="userId" value="user123" placeholder="Enter your user ID" />
+    </div>
+
+    <button id="connectBtn" class="btn">Connect</button>
+    <button id="disconnectBtn" class="btn btn-danger" disabled>Disconnect</button>
+</div>
+
+<div class="two-column">
+    <div class="container">
+        <h2>Send Test Notification</h2>
+        <div class="form-group">
+            <label for="userId">Target User ID:</label>
+            <input type="text" id="userId" value="1" placeholder="User to send notification to" />
+        </div>
+
+        <div class="form-group">
+            <label for="message">Title:</label>
+            <input type="text" id="message" value="Test Notification" placeholder="Notification message" />
+        </div>
+
+        <div class="form-group">
+            <label for="protocol">Title:</label>
+            <input type="text" id="protocol" value="ws" placeholder="Protocol" />
+        </div>
+
+        <div class="form-group">
+            <label for="notificationType">Type:</label>
+            <select id="notificationType">
+                <option value="info">Info</option>
+                <option value="success">Success</option>
+                <option value="success">Success</option>
+                <option value="warning">Warning</option>
+                <option value="error">Error</option>
+            </select>
+        </div>
+
+        <button id="sendNotificationBtn" class="btn">Send Notification</button>
+    </div>
+
+    <div class="container">
+        <h2>Received Notifications</h2>
+        <button id="clearNotificationsBtn" class="btn" style="margin-bottom: 15px;">Clear All</button>
+        <div id="notificationsContainer" class="notifications-container">
+            <p style="text-align: center; color: #666;">No notifications received yet...</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    let stompClient = null;
+    let connected = false;
+
+    // DOM elements
+    const connectionStatus = document.getElementById('connectionStatus');
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const serverUrl = document.getElementById('serverUrl');
+    const userId = document.getElementById('userId');
+    const sendNotificationBtn = document.getElementById('sendNotificationBtn');
+    const notificationsContainer = document.getElementById('notificationsContainer');
+    const clearNotificationsBtn = document.getElementById('clearNotificationsBtn');
+
+    // Connect to WebSocket
+    function connect() {
+        const url = serverUrl.value;
+        const user = userId.value.trim();
+
+        if (!user) {
+            alert('Please enter a User ID');
+            return;
+        }
+
+        const socket = new SockJS(url);
+        stompClient = Stomp.over(socket);
+
+        // Add userId header for authentication
+        const headers = {
+            'userId': user
+        };
+
+        stompClient.connect(headers, function(frame) {
+            connected = true;
+            updateConnectionStatus();
+            console.log('Connected: ' + frame);
+
+            // Subscribe to user-specific notifications
+            stompClient.subscribe('/user/queue/notifications', function(notification) {
+                const notificationData = JSON.parse(notification.body);
+                displayNotification(notificationData);
+            });
+
+        }, function(error) {
+            console.error('Connection error: ', error);
+            connected = false;
+            updateConnectionStatus();
+            alert('Failed to connect to server. Please check the server URL and try again.');
+        });
+    }
+
+    // Disconnect from WebSocket
+    function disconnect() {
+        if (stompClient !== null) {
+            stompClient.disconnect();
+            connected = false;
+            updateConnectionStatus();
+            console.log('Disconnected');
+        }
+    }
+
+    // Update connection status UI
+    function updateConnectionStatus() {
+        if (connected) {
+            connectionStatus.textContent = '✅ Connected as ' + userId.value;
+            connectionStatus.className = 'connection-status connected';
+            connectBtn.disabled = true;
+            disconnectBtn.disabled = false;
+            sendNotificationBtn.disabled = false;
+        } else {
+            connectionStatus.textContent = '❌ Disconnected';
+            connectionStatus.className = 'connection-status disconnected';
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+            sendNotificationBtn.disabled = true;
+        }
+    }
+
+    // Send notification via REST API
+    async function sendNotification() {
+        const userId = document.getElementById('userId').value.trim();
+        const message = document.getElementById('message').value.trim();
+        const protocol = document.getElementById('protocol').value.trim();
+
+        if (!userId || !message || !protocol) {
+            alert('Please fill in all required fields');
+            return;
+        }
+
+        try {
+            const baseUrl = serverUrl.value.replace('/ws', '');
+            const response = await fetch(`${baseUrl}/api/notifications/send`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    userId: userId,
+                    title: message,
+                    message: protocol,
+                })
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                alert('Notification sent successfully!');
+            } else {
+                alert('Failed to send notification: ' + (result.message || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Error sending notification:', error);
+            alert('Error sending notification. Please check the console for details.');
+        }
+    }
+
+    // Display received notification
+    function displayNotification(notification) {
+        const container = notificationsContainer;
+
+        // Remove "no notifications" message
+        if (container.children.length === 1 && container.children[0].tagName === 'P') {
+            container.innerHTML = '';
+        }
+
+        const notificationEl = document.createElement('div');
+        notificationEl.className = `notification ${notification.type}`;
+
+        const time = new Date(notification.timestamp).toLocaleString();
+
+        notificationEl.innerHTML = `
+                <div class="notification-header">
+                    <h4 class="notification-title">${escapeHtml(notification.title)}</h4>
+                    <span class="notification-time">${time}</span>
+                </div>
+                <p class="notification-message">${escapeHtml(notification.message)}</p>
+            `;
+
+        // Add to top of container
+        container.insertBefore(notificationEl, container.firstChild);
+
+        // Animate the notification
+        notificationEl.style.opacity = '0';
+        notificationEl.style.transform = 'translateY(-20px)';
+        setTimeout(() => {
+            notificationEl.style.transition = 'all 0.3s ease';
+            notificationEl.style.opacity = '1';
+            notificationEl.style.transform = 'translateY(0)';
+        }, 10);
+    }
+
+    // Clear all notifications
+    function clearNotifications() {
+        notificationsContainer.innerHTML = '<p style="text-align: center; color: #666;">No notifications received yet...</p>';
+    }
+
+    // Escape HTML to prevent XSS
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Event listeners
+    connectBtn.addEventListener('click', connect);
+    disconnectBtn.addEventListener('click', disconnect);
+    sendNotificationBtn.addEventListener('click', sendNotification);
+    clearNotificationsBtn.addEventListener('click', clearNotifications);
+
+    // Initialize UI state
+    updateConnectionStatus();
+
+    // Auto-focus user ID field
+    userId.focus();
+</script>
+</body>
+</html>

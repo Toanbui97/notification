@@ -1,7 +1,7 @@
 package com.example.notification;
 
 import com.example.notification.sse.config.SseRedisConsumer;
-import com.example.notification.ws.config.WsRedisConsumer;
+import com.example.notification.ws.config.RedisNotificationListener;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,7 +14,7 @@ import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 public class RedisConsumerConfiguration {
 
     private final SseRedisConsumer sseRedisConsumer;
-    private final WsRedisConsumer wsRedisConsumer;
+    private final RedisNotificationListener redisNotificationListener;
 
     @Bean
     public RedisMessageListenerContainer redisContainer(LettuceConnectionFactory lettuceConnectionFactory) {
@@ -23,7 +23,7 @@ public class RedisConsumerConfiguration {
 
         // Subscribe to one or more channels
         container.addMessageListener(sseRedisConsumer, new ChannelTopic("SSE_NOTIFICATION_CHANNEL"));
-        container.addMessageListener(wsRedisConsumer, new ChannelTopic("WS_NOTIFICATION_CHANNEL"));
+        container.addMessageListener(redisNotificationListener, new ChannelTopic("WS_NOTIFICATION_CHANNEL"));
 
         return container;
     }

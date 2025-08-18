@@ -20,41 +20,12 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequiredArgsConstructor
 public class WsNotificationService {
 
-    public static final Map<Long, WebSocketSession> sessions = new ConcurrentHashMap<>();
     private static final String WS_NOTIFICATION_CHANNEL = "WS_NOTIFICATION_CHANNEL";
 
     private final RedisTemplate<String, String> redisTemplate;
 
-    public void registerSession(Long userId, WebSocketSession session) {
-        log.info("registerSession() - userId = {}.", session.getId());
-        sessions.put(userId, session);
-    }
 
-    public void removeSession(Long userId, WebSocketSession session) {
-        log.info("removeSession() - userId = {}.", sessions.get(userId).getId());
-        try (session) {
-            sessions.remove(userId);
-        } catch (IOException e) {
-            log.error("removeSession() - error: {}", e.getMessage());
-            throw new RuntimeException(e);
-        }
-    }
-
-    public void sendNotificationToUser(NotificationMessage message) {
-        log.info("sendNotification() - userId = {}, message = {}.", message.getUserId(), message);
-
-        var session = sessions.get(message.getUserId());
-        if (session != null && session.isOpen()) {
-            try {
-                session.sendMessage(new TextMessage(new ObjectMapper().writeValueAsString(message)));
-            } catch (IOException e) {
-                log.error("sendNotification() - error: {}", e.getMessage());
-                throw new RuntimeException(e);
-            }
-        }
-    }
-
-    public void publishNotification(NotificationMessage notification) {
+    public NotificationMessage publishNotification(NotificationMessage notification) {
         log.info("publishNotification() - notification: {}, timestamps = {}.", notification, OffsetDateTime.now());
         notification.setPublishedAt(System.currentTimeMillis());
         try {
@@ -63,5 +34,7 @@ public class WsNotificationService {
             log.error("publishNotification() - error: {}", e.getMessage());
             throw new RuntimeException(e);
         }
+
+        return notification;
     }
 }

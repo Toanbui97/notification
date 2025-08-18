@@ -1,7 +1,6 @@
 package com.example.notification.ws.config;
 
 import com.example.notification.model.NotificationMessage;
-import com.example.notification.sse.SseNotificationService;
 import com.example.notification.ws.WsNotificationService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -9,7 +8,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.connection.Message;
 import org.springframework.data.redis.connection.MessageListener;
-import org.springframework.stereotype.Component;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -18,10 +18,11 @@ import java.time.OffsetDateTime;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class WsRedisConsumer implements MessageListener {
+public class RedisNotificationListener implements MessageListener {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private final WsNotificationService wsNotificationService;
+    private final SimpMessagingTemplate messagingTemplate;
+    private final RedisConnectionManager connectionManager;
 
     @Override
     public void onMessage(Message msg, byte[] pattern) {
@@ -41,6 +42,12 @@ public class WsRedisConsumer implements MessageListener {
             return;
         }
 
-       wsNotificationService.sendNotificationToUser(message);
+        if (connectionManager.isUserConnectedToThisInstance(message.getUserId())) {
+            messagingTemplate.convertAndSendToUser(
+                    String.valueOf(message.getUserId()),
+                    "/queue/notifications",
+                    message
+            );
+        }
     }
 }

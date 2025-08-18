@@ -22,15 +22,9 @@ public class NotificationPublisher {
     private final WsNotificationService wsNotificationService;
 
     @PostMapping("/api/v1/notifications")
-    public ResponseEntity<Void> publishNotification(@RequestBody NotificationMessage notification) {
+    public ResponseEntity<NotificationMessage> publishNotification(@RequestBody NotificationMessage notification) {
 
-        if (Objects.equals("ws", notification.getProtocol())) {
-            wsNotificationService.publishNotification(notification);
-        } else if  (Objects.equals("sse", notification.getProtocol())) {
-            sseNotificationService.publishNotification(notification);
-        }
-
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok().body(wsNotificationService.publishNotification(notification));
     }
 
 }
