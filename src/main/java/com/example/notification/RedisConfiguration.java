@@ -49,11 +49,4 @@ public class RedisConfiguration {
 
         return redisTemplate;
     }
-
-    @Bean
-    public RedisMessageListenerContainer redisMessageListenerContainer(LettuceConnectionFactory lettuceConnectionFactory) {
-        RedisMessageListenerContainer container = new RedisMessageListenerContainer();
-        container.setConnectionFactory(lettuceConnectionFactory);
-        return container;
-    }
 }

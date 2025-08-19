@@ -7,13 +7,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.web.socket.TextMessage;
-import org.springframework.web.socket.WebSocketSession;
 
-import java.io.IOException;
 import java.time.OffsetDateTime;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Service
@@ -23,7 +18,6 @@ public class WsNotificationService {
     private static final String WS_NOTIFICATION_CHANNEL = "WS_NOTIFICATION_CHANNEL";
 
     private final RedisTemplate<String, String> redisTemplate;
-
 
     public NotificationMessage publishNotification(NotificationMessage notification) {
         log.info("publishNotification() - notification: {}, timestamps = {}.", notification, OffsetDateTime.now());

@@ -33,7 +33,7 @@ public class RedisNotificationListener implements MessageListener {
         try {
             message = OBJECT_MAPPER.readValue(body, NotificationMessage.class);
             var latency = System.currentTimeMillis() - message.getPublishedAt();
-
+            message.setLatency(latency);
             log.info("onMessage() - channel = {}, message = {}, receiveAt = {}, latency = {}ms.",
                     channel, message, OffsetDateTime.now(), latency);
 

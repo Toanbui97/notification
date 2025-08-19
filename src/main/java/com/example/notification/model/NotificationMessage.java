@@ -10,4 +10,5 @@ public class NotificationMessage implements Serializable {
     private String message;
     private Long publishedAt;
     private String protocol;
+    private Long latency;
 }

@@ -18,7 +18,6 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class NotificationPublisher {
 
-    private final SseNotificationService sseNotificationService;
     private final WsNotificationService wsNotificationService;
 
     @PostMapping("/api/v1/notifications")
