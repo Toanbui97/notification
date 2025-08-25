@@ -9,11 +9,7 @@ import java.io.Serializable;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class NotificationMessage implements Serializable {
-    private Long userId;
+public class ClientAckMessage implements Serializable {
     private String messageId;
-    private String message;
-    private Long publishedAt;
-    private String protocol;
-    private Long latency;
+    private Long userId;
 }
