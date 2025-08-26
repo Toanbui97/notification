@@ -1,4 +1,4 @@
-package com.example.notification.ws.config;
+package com.example.notification.config;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +11,8 @@ import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.web.socket.config.annotation.*;
 
 import java.security.Principal;
@@ -21,9 +23,19 @@ import java.security.Principal;
 @RequiredArgsConstructor
 public class WebSocketConfiguration implements WebSocketMessageBrokerConfigurer {
 
+    public TaskScheduler messageBrokerTaskScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(1);
+        scheduler.setThreadNamePrefix("ws-heartbeat-");
+        scheduler.initialize();
+        return scheduler;
+    }
+
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
-        config.enableSimpleBroker("/topic", "/queue");
+        config.enableSimpleBroker("/topic", "/queue")
+                .setHeartbeatValue(new long[]{10000, 20000})
+                .setTaskScheduler(this.messageBrokerTaskScheduler());
         config.setApplicationDestinationPrefixes("/app");
         config.setUserDestinationPrefix("/user");
     }
@@ -53,7 +65,6 @@ public class WebSocketConfiguration implements WebSocketMessageBrokerConfigurer 
         });
     }
 
-    // Simple UserPrincipal implementation
     private static class UserPrincipal implements Principal {
         private final String name;
 

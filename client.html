@@ -211,6 +211,8 @@
         const socket = new SockJS(url);
         stompClient = Stomp.over(socket);
 
+        stompClient.heartbeat.outgoing = 10000;
+        stompClient.heartbeat.incoming = 20000;
         // Add userId header for authentication
         const headers = {
             'userId': user
@@ -225,6 +227,17 @@
             stompClient.subscribe('/user/queue/notifications', function(notification) {
                 const notificationData = JSON.parse(notification.body);
                 displayNotification(notificationData);
+
+                setTimeout(() => {
+                    stompClient.send(
+                        "/app/notifications/ack",
+                        {'content-type': 'application/json'},
+                        JSON.stringify({
+                            messageId: notificationData.messageId,
+                            userId: notificationData.userId
+                        })
+                    );
+                }, 1000); // 200ms delay
             });
 
         }, function(error) {

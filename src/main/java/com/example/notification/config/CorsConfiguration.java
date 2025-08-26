@@ -1,4 +1,4 @@
-package com.example.notification.ws.config;
+package com.example.notification.config;
 
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
@@ -16,4 +16,5 @@ public class CorsConfiguration implements WebMvcConfigurer {
                 .allowedMethods("*") // Allow all HTTP methods (GET, POST, PUT, DELETE, etc.)
                 .allowedHeaders("*"); // Allow all headers
     }
+
 }
