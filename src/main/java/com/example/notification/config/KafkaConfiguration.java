@@ -1,14 +1,18 @@
 package com.example.notification.config;
 
 import com.example.notification.helper.JsonSerdes;
+import com.example.notification.helper.NotificationMessagePair;
 import com.example.notification.model.NotificationMessage;
+import com.example.notification.model.NotificationState;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.*;
 import org.apache.kafka.common.utils.Bytes;
+import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.kstream.*;
@@ -23,14 +27,12 @@ import org.springframework.kafka.config.KafkaStreamsConfiguration;
 import org.springframework.kafka.core.*;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
-import org.springframework.kafka.support.serializer.JsonSerde;
 import org.springframework.kafka.support.serializer.JsonSerializer;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.time.Duration;
+import java.util.*;
 
+@Slf4j
 @EnableKafka
 @Configuration
 @EnableKafkaStreams
@@ -50,7 +52,7 @@ public class KafkaConfiguration {
 
         DefaultKafkaConsumerFactory<String, NotificationMessage> factory =
                 new DefaultKafkaConsumerFactory<>(props);
-        factory.setValueDeserializer(new JsonDeserializer<>( NotificationMessage.class, objectMapper));
+        factory.setValueDeserializer(new JsonDeserializer<>(NotificationMessage.class, objectMapper));
         return factory;
     }
 
@@ -92,8 +94,9 @@ public class KafkaConfiguration {
 
     @Bean
     public NewTopic topic2() {
-        return new NewTopic("pending-notification", 1, (short) 1);
+        return new NewTopic("notification-event-source", 1, (short) 1);
     }
+
 
     @Bean
     public KafkaTemplate<String, NotificationMessage> kafkaTemplate(ProducerFactory<String, NotificationMessage> producerFactory) {
@@ -112,28 +115,49 @@ public class KafkaConfiguration {
     }
 
     @Bean
-    public KTable<Long, List<NotificationMessage>> notificationPendingStreams(StreamsBuilder builder) {
-        var stream = builder.stream("pending-notification", Consumed.with(Serdes.String(), JsonSerdes.notification()));
+    public KStream<String, NotificationMessage> forwardNotification(StreamsBuilder builder) {
+        KStream<String, NotificationMessage> stream = builder.stream("ws-notification",
+                Consumed.with(Serdes.String(), JsonSerdes.notification()));
 
-        KGroupedStream<Long, NotificationMessage> grouped = stream
-                .selectKey((messageId, message) -> {
-                    if (message != null) {
-                        return message.getUserId();
-                    }
-                    return null;
-                })
-                .groupByKey(Grouped.with(Serdes.Long(), JsonSerdes.notification()));
+        stream.map((key, value) -> KeyValue.pair(value.getMessageId(), value))
+                .to("notification-event-source", Produced.with(Serdes.String(), JsonSerdes.notification()));
 
-        // Aggregate into List<NotificationMessage>
-        return grouped.aggregate(
-                ArrayList::new,
-                (userId, newMessage, list) -> {
-                    list.add(newMessage);
-                    return list;
-                },
-                Materialized.<Long, List<NotificationMessage>, KeyValueStore<Bytes, byte[]>>as("pending-notification-store")
-                        .withKeySerde(Serdes.Long())
-                        .withValueSerde(JsonSerdes.notificationList())
-        );
+        return stream;
+    }
+
+    @Bean
+    public KTable<Long, Map<String, NotificationMessagePair>> notificationPendingStreams(StreamsBuilder builder) {
+        return builder.stream("notification-event-source", Consumed.with(Serdes.String(), JsonSerdes.notification()))
+                .groupBy((messageId, notificationMessage) -> notificationMessage.getUserId(),
+                        Grouped.with(Serdes.Long(), JsonSerdes.notification()))
+                .aggregate(HashMap::new,
+                        (userId, message, aggregate) -> {
+                            log.info("notificationPendingStreams() - userId = {}, message = {}.", userId, message);
+                            if (message == null) {
+                                return aggregate;
+                            }
+
+                            if (aggregate.get(message.getMessageId()) == null) {
+                                var pair = new NotificationMessagePair();
+                                pair.add(message);
+
+                                aggregate.put(message.getMessageId(), pair);
+                            } else {
+                                var pair = aggregate.get(message.getMessageId());
+                                pair.add(message);
+
+                                if (pair.isDone()) {
+                                    aggregate.remove(message.getMessageId());
+                                }
+                            }
+
+                            return aggregate;
+                        },
+
+                        Materialized.<Long, Map<String, NotificationMessagePair>, KeyValueStore<Bytes, byte[]>>as("notification-store")
+                                .withKeySerde(Serdes.Long())
+                                .withValueSerde(JsonSerdes.notificationPairMap())
+                                .withRetention(Duration.ofDays(3))
+                );
     }
 }

@@ -16,4 +16,5 @@ public class NotificationMessage implements Serializable {
     private Long publishedAt;
     private String protocol;
     private Long latency;
+    private NotificationState state = NotificationState.PENDING;
 }
