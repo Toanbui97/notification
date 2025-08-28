@@ -5,9 +5,6 @@ import com.example.notification.model.ClientAckMessage;
 import com.example.notification.model.NotificationMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.streams.StoreQueryParameters;
-import org.apache.kafka.streams.state.QueryableStoreTypes;
-import org.apache.kafka.streams.state.ReadOnlyKeyValueStore;
 import org.springframework.kafka.config.StreamsBuilderFactoryBean;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -22,7 +19,6 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class WebSocketController {
 
-    private final StreamsBuilderFactoryBean factoryBean;
     private final KafkaTemplate<String, Object> kafkaTemplate;
 
     @MessageMapping("/notifications/ack")

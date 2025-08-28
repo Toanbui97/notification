@@ -3,12 +3,12 @@ package com.example.notification.config;
 import com.example.notification.persistance.NotificationDocument;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.*;
-import org.apache.kafka.streams.StreamsConfig;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,6 +16,7 @@ import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.kafka.annotation.EnableKafkaStreams;
 import org.springframework.kafka.annotation.KafkaStreamsDefaultConfiguration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
+import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.kafka.config.KafkaStreamsConfiguration;
 import org.springframework.kafka.core.*;
 import org.springframework.kafka.listener.ContainerProperties;
@@ -27,7 +28,6 @@ import java.util.*;
 @Slf4j
 @EnableKafka
 @Configuration
-@EnableKafkaStreams
 public class KafkaConfiguration {
 
     @Value("${kafka.bootstrap-servers}")
@@ -85,6 +85,16 @@ public class KafkaConfiguration {
     }
 
     @Bean
+    public AdminClient adminClient(KafkaAdmin kafkaAdmin) {
+        return AdminClient.create(kafkaAdmin.getConfigurationProperties());
+    }
+
+    @Bean
+    public KafkaListenerEndpointRegistry kafkaListenerEndpointRegistry() {
+        return new KafkaListenerEndpointRegistry();
+    }
+
+    @Bean
     public NewTopic topic1() {
         return new NewTopic("ws-notification", 1, (short) 1);
     }
@@ -99,17 +109,17 @@ public class KafkaConfiguration {
     public KafkaTemplate<String, Object> kafkaTemplate(ProducerFactory<String, Object> producerFactory) {
         return new KafkaTemplate<>(producerFactory);
     }
-
-    @Bean(name = KafkaStreamsDefaultConfiguration.DEFAULT_STREAMS_CONFIG_BEAN_NAME)
-    public KafkaStreamsConfiguration kafkaStreamsConfiguration() {
-
-        Map<String, Object> props = new HashMap<>();
-        props.put(StreamsConfig.APPLICATION_ID_CONFIG, "broadcast-notification-" + applicationInstanceName);
-        props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
-        props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
-        return new KafkaStreamsConfiguration(props);
-    }
+//
+//    @Bean(name = KafkaStreamsDefaultConfiguration.DEFAULT_STREAMS_CONFIG_BEAN_NAME)
+//    public KafkaStreamsConfiguration kafkaStreamsConfiguration() {
+//
+//        Map<String, Object> props = new HashMap<>();
+//        props.put(StreamsConfig.APPLICATION_ID_CONFIG, "broadcast-notification-" + applicationInstanceName);
+//        props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+//        props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
+//        props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
+//        return new KafkaStreamsConfiguration(props);
+//    }
 
 //    @Bean
 //    public KStream<String, NotificationMessage> forwardNotification(StreamsBuilder builder) {

@@ -298,19 +298,16 @@
             connectionStatus.className = 'connection-status connected';
             connectBtn.disabled = true;
             disconnectBtn.disabled = false;
-            sendNotificationBtn.disabled = false;
         } else if (isReconnecting) {
             connectionStatus.textContent = `🔄 Reconnecting (${reconnectAttempts}/${maxReconnectAttempts})...`;
             connectionStatus.className = 'connection-status reconnecting';
             connectBtn.disabled = true;
             disconnectBtn.disabled = true;
-            sendNotificationBtn.disabled = true;
         } else {
             connectionStatus.textContent = '❌ Disconnected';
             connectionStatus.className = 'connection-status disconnected';
             connectBtn.disabled = false;
             disconnectBtn.disabled = true;
-            sendNotificationBtn.disabled = true;
         }
     }
 
@@ -364,7 +361,7 @@
         notificationEl.innerHTML = `
                 <div class="notification-header">
                     <h4 class="notification-title">${escapeHtml(notification.title)}</h4>
-                    <span class="notification-time">${notification.latency} ms</span>
+                    <span class="notification-time">${Date.now() - notification.publishedAt} ms</span>
                 </div>
                 <p class="notification-message">${escapeHtml(notification.message)}</p>
             `;
