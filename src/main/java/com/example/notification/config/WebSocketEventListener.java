@@ -1,29 +1,22 @@
 package com.example.notification.config;
 
-import com.example.notification.helper.NotificationMessagePair;
-import com.example.notification.model.ConnectionInfo;
-import com.example.notification.model.NotificationMessage;
 import com.example.notification.model.NotificationState;
+import com.example.notification.persistance.NotificationDocument;
 import com.example.notification.service.ConnectionManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.streams.StoreQueryParameters;
-import org.apache.kafka.streams.state.QueryableStoreTypes;
-import org.apache.kafka.streams.state.ReadOnlyKeyValueStore;
 import org.springframework.context.event.EventListener;
-import org.springframework.kafka.config.StreamsBuilderFactoryBean;
-import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.stereotype.Service;
-import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import org.springframework.web.socket.messaging.SessionConnectedEvent;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import org.springframework.web.socket.messaging.SessionSubscribeEvent;
-
-import java.time.OffsetDateTime;
-import java.util.List;
-import java.util.Map;
 
 @Slf4j
 @Service
@@ -31,9 +24,8 @@ import java.util.Map;
 public class WebSocketEventListener {
 
     private final ConnectionManager connectionManager;
-    private final StreamsBuilderFactoryBean factoryBean;
     private final SimpMessagingTemplate simpMessagingTemplate;
-    private final KafkaTemplate<String, NotificationMessage> kafkaTemplate;
+    private final MongoTemplate mongoTemplate;
 
     @EventListener
     public void handleWebSocketConnectListener(SessionConnectedEvent event) {
@@ -42,42 +34,57 @@ public class WebSocketEventListener {
 
         var userId = Long.valueOf(event.getUser().getName());
 
-        var connectionInfo = ConnectionInfo.builder()
-                .connectedAt(OffsetDateTime.now())
-                .sessionId(sessionId)
-                .userId(userId)
-                .build();
-        connectionManager.addConnection(userId, connectionInfo);
+        connectionManager.addConnection(userId, sessionId);
     }
 
     @EventListener
     public void handleWebSocketDisconnectListener(SessionDisconnectEvent event) {
         var user = event.getUser();
         if (user != null) {
-            connectionManager.removeConnection(Long.valueOf(user.getName()));
+            connectionManager.removeConnection(event.getSessionId());
         }
     }
 
     @EventListener
     public void handleWebSocketSubscribeListener(SessionSubscribeEvent event) {
         StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
-        String userId = headerAccessor.getUser() != null ? headerAccessor.getUser().getName() : "unknown";
+        String userId = headerAccessor.getUser() != null ? headerAccessor.getUser().getName() : "0";
 
-        ReadOnlyKeyValueStore<Long, Map<String, NotificationMessagePair>> store = factoryBean.getKafkaStreams()
-                .store(StoreQueryParameters.fromNameAndType("notification-store",
-                        QueryableStoreTypes.keyValueStore()));
+        var selectQuery = Query.query(Criteria.where("userId").is(Long.valueOf(userId)))
+                .addCriteria(Criteria.where("state").is(NotificationState.PENDING));
 
-        Map<String, NotificationMessagePair> pendingNotifications = store.get(Long.valueOf(userId));
+        var notifications = mongoTemplate.find(selectQuery, NotificationDocument.class);
 
-        if (!CollectionUtils.isEmpty(pendingNotifications)) {
+        var sentIds = notifications.stream().map(document -> {
+                    try {
+                        simpMessagingTemplate.convertAndSendToUser(userId, "/queue/notifications", document);
+                        return document.getId();
+                    } catch (Exception e) {
+                        log.error("Error while sending notification message", e);
+                    }
+                    return null;
+                }).filter(StringUtils::hasText)
+                .toList();
 
-            pendingNotifications.forEach((messageId, pair) -> {
-                var notification = pair.get();
-                simpMessagingTemplate.convertAndSendToUser(userId, "/queue/notifications", notification);
+        var query = Query.query(Criteria.where("id").in(sentIds));
+        var update = Update.update("state", NotificationState.SENT);
 
-                notification.setState(NotificationState.SENT);
-                kafkaTemplate.send("notification-event-source", messageId, notification);
-            });
-        }
+        mongoTemplate.updateMulti(query, update, NotificationDocument.class);
+
+//        ReadOnlyKeyValueStore<Long, Map<String, NotificationMessagePair>> store = factoryBean.getKafkaStreams()
+//                .store(StoreQueryParameters.fromNameAndType("notification-store",
+//                        QueryableStoreTypes.keyValueStore()));
+//
+//        Map<String, NotificationMessagePair> pendingNotifications = store.get(Long.valueOf(userId));
+//
+//        if (!CollectionUtils.isEmpty(pendingNotifications)) {
+//
+//            pendingNotifications.forEach((messageId, pair) -> {
+//                var notification = pair.get();
+//                simpMessagingTemplate.convertAndSendToUser(userId, "/queue/notifications", notification);
+//
+//                notification.setState(NotificationState.SENT);
+//            });
+//        }
     }
 }

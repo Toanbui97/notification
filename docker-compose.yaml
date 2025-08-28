@@ -26,37 +26,72 @@ services:
       - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka-notification:9093
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://host.docker.internal:9092
       - ALLOW_PLAINTEXT_LISTENER=yes
     ports:
       - "9092:9092"
 #    volumes:
 #      - ./data/kafka:/bitnami
 #
-#  notification-1:
-#    image: notification:1.0-SNAPSHOT
-#    deploy:
-#      resources:
-#        limits:
-#          cpus: '2.0'
-#          memory: 1g
-#    container_name: notification-1
-#    environment:
-#      - REDIS_HOST=host.docker.internal
-#      - REDIS_PORT=6379
-#    ports:
-#      - '9090:8080'
-
-#  nginx:
-#    image: nginx:latest
-#    container_name: nginx
-#    ports:
-#      - "80:80"
+  mongodb:
+    image: mongo:latest
+    container_name: mongo-notification
+    ports:
+      - "27017:27017"
 #    volumes:
-#      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-#      - ./nginx/html:/usr/share/nginx/html:ro
-#    restart: unless-stopped
+#      - ./data/mongo:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin
+      MONGO_INITDB_DATABASE: notification
 
-#volumes:
-#  data:
-#    driver: local
+  notification-1:
+    image: notification:1.0-SNAPSHOT
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1g
+    container_name: notification-1
+    environment:
+      - INSTANCE_NAME=instance-1
+      - REDIS_HOST=host.docker.internal
+      - REDIS_PORT=6379
+      - KAFKA_SERVER=host.docker.internal:9092
+      - MONGO_URI=mongodb://admin:admin@host.docker.internal:27017/notification?authSource=admin
+    ports:
+      - '9090:8080'
+
+  notification-2:
+    image: notification:1.0-SNAPSHOT
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1g
+    container_name: notification-2
+    environment:
+      - INSTANCE_NAME=instance-2
+      - REDIS_HOST=host.docker.internal
+      - REDIS_PORT=6379
+      - KAFKA_SERVER=host.docker.internal:9092
+      - MONGO_URI=mongodb://admin:admin@host.docker.internal:27017/notification?authSource=admin
+    ports:
+      - '9091:8080'
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - notification-1
+      - notification-2
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/html:/usr/share/nginx/html:ro
+    restart: unless-stopped
+
+volumes:
+  data:
+    driver: local

@@ -14,7 +14,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class WsNotificationService {
 
-    private final KafkaTemplate<String, NotificationMessage> kafkaTemplate;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
 
     public NotificationMessage publishNotification(NotificationMessage notification) {
         log.info("publishNotification() - notification: {}, timestamps = {}.", notification, OffsetDateTime.now());

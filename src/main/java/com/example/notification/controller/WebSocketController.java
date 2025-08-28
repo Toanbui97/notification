@@ -23,23 +23,23 @@ import java.util.Map;
 public class WebSocketController {
 
     private final StreamsBuilderFactoryBean factoryBean;
-    private final KafkaTemplate<String, NotificationMessage> kafkaTemplate;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
 
     @MessageMapping("/notifications/ack")
     public void clientAck(@Payload ClientAckMessage ackMessage) {
         log.info("clientAck() - received message: {}", ackMessage.toString());
-
-        ReadOnlyKeyValueStore<Long, Map<String, NotificationMessagePair>> store = factoryBean.getKafkaStreams()
-                .store(StoreQueryParameters.fromNameAndType("notification-store",
-                        QueryableStoreTypes.keyValueStore()));
-
-        Map<String, NotificationMessagePair> messages = store.get(ackMessage.getUserId());
+//
+//        ReadOnlyKeyValueStore<Long, Map<String, NotificationMessagePair>> store = factoryBean.getKafkaStreams()
+//                .store(StoreQueryParameters.fromNameAndType("notification-store",
+//                        QueryableStoreTypes.keyValueStore()));
+//
+//        Map<String, NotificationMessagePair> messages = store.get(ackMessage.getUserId());
 //        if (messages != null) {
 //            messages.stream().filter(e -> e.getMessageId().equals(ackMessage.getMessageId()))
 //                    .findFirst()
 //                    .ifPresent(e -> kafkaTemplate.send("pending-notification", ackMessage.getMessageId(), null));
 //        }
-        log.info("clientAck() - pending messages: {}", messages);
-        log.info("clientAck() - notification commited. messageId = {}.", ackMessage.getMessageId());
+//        log.info("clientAck() - pending messages: {}", messages);
+//        log.info("clientAck() - notification commited. messageId = {}.", ackMessage.getMessageId());
     }
 }
