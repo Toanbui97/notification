@@ -10,30 +10,25 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.DeleteConsumerGroupsResult;
 import org.apache.kafka.clients.admin.DeleteTopicsResult;
-import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.errors.GroupIdNotFoundException;
 import org.apache.kafka.common.errors.GroupNotEmptyException;
-import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.kafka.config.*;
-import org.springframework.kafka.core.ConsumerFactory;
-import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.MessageListenerContainer;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.kafka.support.converter.MappingJacksonParameterizedConverter;
-import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.springframework.messaging.handler.annotation.support.DefaultMessageHandlerMethodFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 import org.springframework.web.socket.messaging.SessionConnectedEvent;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import org.springframework.web.socket.messaging.SessionSubscribeEvent;
@@ -57,7 +52,7 @@ public class WebSocketEventListener {
     private final ConcurrentKafkaListenerContainerFactory<String, Object> kafkaListenerContainerFactory;
     private final KafkaNotificationListener kafkaNotificationListener;
     private final KafkaTemplate<String, Object> kafkaTemplate;
-    private final Map<String, String> kafkaTopicConsumerMap = new ConcurrentHashMap<>();
+    private final Map<Long, String> kafkaTopicConsumerMap = new ConcurrentHashMap<>();
 
     @Value("${application.instance-name}")
     private String instanceName;
@@ -79,15 +74,13 @@ public class WebSocketEventListener {
         if (user != null) {
             connectionManager.removeConnection(event.getSessionId());
             var userId = Long.valueOf(user.getName());
-            if (!connectionManager.isUserConnectedToThisInstance(userId)) {
-                unregisterDynamicListenerForUser(userId).thenRun(() -> {
-//                    if (!connectionManager.isUserConnected(Long.valueOf(user.getName()))) {
-//                        CompletableFuture.delayedExecutor(5, TimeUnit.SECONDS).execute(() -> {
-//                            deleteTopic("notification-user-" + user.getName());
-//                        });
-//                    }
-                });
-            }
+            unregisterDynamicListenerForUser(userId).thenRun(() -> {
+                    if (!connectionManager.isUserConnected(Long.valueOf(user.getName()))) {
+                        CompletableFuture.delayedExecutor(5, TimeUnit.SECONDS).execute(() -> {
+                            deleteTopic("notification-user-" + user.getName());
+                        });
+                    }
+            });
         }
     }
 
@@ -112,16 +105,16 @@ public class WebSocketEventListener {
 
             simpMessagingTemplate.convertAndSendToUser(String.valueOf(message.getUserId()), "/queue/notifications", message);
         });
+
+        var updateQuery = Update.update("state", NotificationState.SENT);
+        mongoTemplate.updateMulti(selectQuery, updateQuery, NotificationDocument.class);
     }
 
     private void createTopicAndSubscribeForUser(Long userId) {
         String topicName = "notification-user-" + userId;
 
         try {
-            // 1. Create or ensure topic exists
             createTopicForUser(topicName);
-
-            // 2. Subscribes topic
             createDynamicListenerForUser(userId, "notification-user-" + userId);
         } catch (Exception e) {
             log.error("Failed to create topic and listener for user {}", userId, e);
@@ -135,7 +128,7 @@ public class WebSocketEventListener {
                         TopicBuilder.name(topicName)
                                 .partitions(1)
                                 .replicas(1)
-                                .config("retention.ms", "604800000") // 7 days
+//                                .config("retention.ms", "604800000") // 7 days
                                 .config("cleanup.policy", "delete")
                                 .build());
                 log.info("createTopicForUser() - Topic create successfully. Topic: {}", topicName);
@@ -159,47 +152,53 @@ public class WebSocketEventListener {
     }
 
     private void createDynamicListenerForUser(Long userId, String topicName) {
-        String listenerId = "listener-user-" + userId;
 
-        // Create listener endpoint
+        if (connectionManager.isUserConnectedToThisInstance(userId)) {
+            return;
+        }
+
+        String listenerId = "listener-user-" + userId;
+        String groupId = "user-notification-groupId-" + userId + "-" + UUID.randomUUID();
+
         MethodKafkaListenerEndpoint<String, NotificationMessage> endpoint =
                 new MethodKafkaListenerEndpoint<>();
 
         endpoint.setId(listenerId);
         endpoint.setTopics(topicName);
-        endpoint.setGroupId("user-notification-groupId-" + userId + "-" + UUID.randomUUID());
+        endpoint.setGroupId(groupId);
         endpoint.setAutoStartup(true);
 
-        // Set the bean and method to handle messages
         endpoint.setBean(kafkaNotificationListener);
         endpoint.setMethod(getListenerMethod());
 
-        // Configure message converter
         endpoint.setMessagingConverter(new MappingJacksonParameterizedConverter());
         endpoint.setMessageHandlerMethodFactory(new DefaultMessageHandlerMethodFactory());
 
-        // Register the endpoint
         kafkaListenerEndpointRegistry.registerListenerContainer(
                 endpoint,
                 kafkaListenerContainerFactory,
                 true
         );
 
+        kafkaTopicConsumerMap.put(userId, groupId);
         log.info("createDynamicListenerForUser() - Endpoint created. Topic: {}", topicName);
     }
 
     private CompletableFuture<Void> unregisterDynamicListenerForUser(Long userId) {
+        if (connectionManager.isUserConnectedToThisInstance(userId)) {
+            return new CompletableFuture<>();
+        }
+
         return CompletableFuture.runAsync(() -> {
+
             String listenerId = "listener-user-" + userId;
             MessageListenerContainer container = kafkaListenerEndpointRegistry.getListenerContainer(listenerId);
 
             if (container != null) {
                 try {
-                    // Stop the container
                     container.stop();
 
-                    // Wait for it to fully stop
-                    int maxWait = 50; // 5 seconds max
+                    int maxWait = 50;
                     int waited = 0;
                     while (container.isRunning() && waited < maxWait) {
                         Thread.sleep(100);
@@ -210,12 +209,11 @@ public class WebSocketEventListener {
                         log.warn("Container for user {} did not stop gracefully within timeout", userId);
                     }
 
-                    // Unregister the container
                     kafkaListenerEndpointRegistry.unregisterListenerContainer(listenerId);
 
-                    // Delete consumer group
-                    deleteConsumerGroup("user-notification-groupId-" + userId + "-" + instanceName);
+                    deleteConsumerGroup(kafkaTopicConsumerMap.get(userId));
                     log.info("Successfully unregistered listener for user: {}", userId);
+                    kafkaTopicConsumerMap.remove(userId);
 
                 } catch (Exception e) {
                     log.error("Error unregistering listener for user {}: {}", userId, e.getMessage());

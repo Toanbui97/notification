@@ -69,13 +69,10 @@ public class ConnectionManager {
         if (connectionInfo != null) {
             Long userId = connectionInfo.getUserId();
 
-            // Remove from user's connection set
             redisTemplate.opsForSet().remove(USER_CONNECTIONS_KEY + userId, sessionId);
 
-            // Remove from instance sessions
             redisTemplate.opsForSet().remove(INSTANCE_SESSIONS_KEY + instanceId, sessionId);
 
-            // Remove session info
             redisTemplate.delete(SESSION_KEY + sessionId);
 
             log.info("Connection removed - User: {}, Session: {}", userId, sessionId);
@@ -114,4 +111,10 @@ public class ConnectionManager {
         return redisTemplate.opsForSet().members(INSTANCE_SESSIONS_KEY + instanceId);
     }
 
+    public void removeInstanceSessions() {
+        var instanceSessions = getInstanceSessions();
+        for (var sessionId : instanceSessions) {
+            removeConnection(sessionId.toString());
+        }
+    }
 }

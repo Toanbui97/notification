@@ -270,7 +270,7 @@
         }
 
         updateConnectionStatus(true);
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000); // Exponential backoff, max 30s
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
         reconnectAttempts++;
 
         reconnectInterval = setTimeout(() => {
